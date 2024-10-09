@@ -3,6 +3,8 @@ from typing import List, Optional
 import gym
 import numpy as np
 from gym import spaces
+import pytorch3d.ops as torch3d_ops
+import torch
 
 import metaworld
 
@@ -49,6 +51,7 @@ def point_cloud_sampling(
     point_cloud: np.ndarray,
     num_points: int,
     method: str = "fps",
+    device_id: int = 0,
 ):
     """
     support different point cloud sampling methods
@@ -73,24 +76,13 @@ def point_cloud_sampling(
         sampled_indices = np.random.choice(point_cloud.shape[0], num_points, replace=False)
         point_cloud = point_cloud[sampled_indices]
     elif method == "fps":
-        N = point_cloud.shape[0]
-        centroids = np.zeros((num_points, point_cloud.shape[-1]), dtype=np.float32)
-        idx = np.zeros(num_points, dtype=np.int64)
-
-        idx[0] = np.random.randint(0, N)
-        centroids[0] = point_cloud[idx[0]]
-
-        min_distances = np.full(N, np.inf, dtype=np.float32)
-        dist = np.sum((point_cloud[:, :3] - centroids[0, :3]) ** 2, axis=-1)
-        min_distances = np.minimum(min_distances, dist)
-
-        for m in range(1, num_points):
-            idx[m] = np.argmax(min_distances)
-            centroids[m] = point_cloud[idx[m]]
-            dist = np.sum((point_cloud[:, :3] - centroids[m, :3]) ** 2, axis=-1)
-            min_distances = np.minimum(min_distances, dist)
-
-        point_cloud = centroids
+        # fast point cloud sampling using torch3d
+        point_cloud = torch.from_numpy(point_cloud).unsqueeze(0).to(device_id)
+        num_points = torch.tensor([num_points]).to(device_id)
+        # remember to only use coord to sample
+        _, sampled_indices = torch3d_ops.sample_farthest_points(points=point_cloud[..., :3], K=num_points)
+        point_cloud = point_cloud.squeeze(0).cpu().numpy()
+        point_cloud = point_cloud[sampled_indices.squeeze(0).cpu().numpy()]
 
     else:
         raise NotImplementedError(f"point cloud sampling method {method} not implemented")
@@ -259,7 +251,7 @@ class MetaWorldEnv(gym.Env):
                 mask = np.all(point_cloud[:, :3] < self.max_bound, axis=1)
                 point_cloud = point_cloud[mask]
 
-        point_cloud = point_cloud_sampling(point_cloud, self.num_points, "fps")
+        point_cloud = point_cloud_sampling(point_cloud, self.num_points, "fps", device_id=self.device_id)
 
         depth = depth[::-1]
 

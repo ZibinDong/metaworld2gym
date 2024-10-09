@@ -2,7 +2,6 @@ import os
 from pathlib import Path
 
 import numpy as np
-import tqdm
 import zarr
 from termcolor import cprint
 
@@ -127,9 +126,10 @@ def collect_dataset(
         task_id_ds = np.full((num_episodes * 200), fill_value=task["task_id"], dtype=np.int64)
 
         episode_idx, ptr = 0, 0
+        successful_episodes = 0
         mw_policy = load_mw_policy(task["task_name"])
 
-        for episode_idx in tqdm.tqdm(range(num_episodes)):
+        while successful_episodes < num_episodes:
             obs = env.reset()
 
             done, ep_reward, ep_success, ep_success_times = False, 0.0, False, 0
@@ -159,10 +159,13 @@ def collect_dataset(
                 )
             else:
                 episode_ends_ds.append(ptr)
+                successful_episodes += 1
                 cprint(
-                    f"Episode: {episode_idx + 1} / {num_episodes}, Reward: {ep_reward}, Success Times: {ep_success_times}",
+                    f"Episode: {successful_episodes} / {num_episodes}, Reward: {ep_reward}, Success Times: {ep_success_times}",
                     "green",
                 )
+
+            episode_idx += 1
 
         begin_idx.append(0 if len(begin_idx) == 0 else end_idx[-1])
         end_idx.append(ptr if len(end_idx) == 0 else end_idx[-1] + ptr)

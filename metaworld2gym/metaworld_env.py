@@ -2,9 +2,9 @@ from typing import List, Optional
 
 import gym
 import numpy as np
-from gym import spaces
 import pytorch3d.ops as torch3d_ops
 import torch
+from gym import spaces
 
 import metaworld
 

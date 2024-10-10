@@ -71,6 +71,11 @@ class SequenceSampler:
             pad_after=pad_after,
         )
 
+        self.task_ends = [task_info["end_idx"] for task_info in self.root.meta.attrs["task_info"]]
+        self.task_ids = [task_info["task_id"] for task_info in self.root.meta.attrs["task_info"]]
+        self.task_t5_emb = self.root.meta["lang_t5_emb"][:]
+        self.task_t5_mask = self.root.meta["lang_t5_mask"][:]
+
         self.indices = indices
         self.keys = list(keys)  # prevent OmegaConf list performance problem
         self.sequence_length = sequence_length
@@ -95,6 +100,10 @@ class SequenceSampler:
                         data[sample_end_idx:] = sample[-1]
                 data[sample_start_idx:sample_end_idx] = sample
             result[key] = data
+        task_idx = np.searchsorted(self.task_ends, buffer_end_idx, side="right")
+        result["task_id"] = self.task_ids[task_idx]
+        result["task_t5_emb"] = self.task_t5_emb[task_idx]
+        result["task_t5_mask"] = self.task_t5_mask[task_idx]
         return result
 
 

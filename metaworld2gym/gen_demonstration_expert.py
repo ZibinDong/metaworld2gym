@@ -1,5 +1,6 @@
 import os
 from pathlib import Path
+from typing import Optional
 
 import numpy as np
 import zarr
@@ -64,13 +65,19 @@ def collect_dataset(
     num_point_clouds: int = 512,
     image_size: int = 224,
     chunk_size: int = 10,
+    T5_model: Optional[str] = None,
 ):
     save_dir = Path(root_dir)
     os.makedirs(save_dir, exist_ok=True)
 
-    begin_idx = []
-    end_idx = []
-    lang_instr = []
+    if T5_model is not None:
+        from metaworld2gym.t5_encoder import T5LanguageEncoder
+
+        t5_encoder = T5LanguageEncoder(T5_model, device=render_device)
+    else:
+        t5_encoder = None
+
+    task_info = []
     compressor = zarr.Blosc(cname="zstd", clevel=3, shuffle=1)
     total_size = 0
 
@@ -104,6 +111,8 @@ def collect_dataset(
     data.create_dataset("action", shape=(0, 4), dtype=np.float32, chunks=(chunk_size, 4), compressor=compressor)
     data.create_dataset("task_id", shape=(0,), dtype=np.int64, compressor=compressor)
     meta.create_dataset("episode_ends", shape=(0,), dtype=np.int64, compressor=compressor)
+    meta.create_dataset("lang_t5_emb", shape=(0, 32, 768), dtype=np.float32, compressor=compressor)
+    meta.create_dataset("lang_t5_mask", shape=(0, 32), dtype=np.int64, compressor=compressor)
 
     for i, task in enumerate(TASK_DESCRIPTION):
         env = MetaWorldEnv(
@@ -167,11 +176,17 @@ def collect_dataset(
 
             episode_idx += 1
 
-        begin_idx.append(0 if len(begin_idx) == 0 else end_idx[-1])
-        end_idx.append(ptr if len(end_idx) == 0 else end_idx[-1] + ptr)
-        lang_instr.append(task["lang_instr"])
+        task_info.append(
+            {
+                "task_name": task["task_name"],
+                "task_id": task["task_id"],
+                "lang_instr": task["lang_instr"],
+                "begin_idx": 0 if len(task_info) == 0 else task_info[-1]["end_idx"],
+                "end_idx": ptr if len(task_info) == 0 else task_info[-1]["end_idx"] + ptr,
+            }
+        )
 
-        size = end_idx[-1] - begin_idx[-1]
+        size = task_info[-1]["end_idx"] - task_info[-1]["begin_idx"]
         data["image"].append(image_ds[:size])
         data["depth"].append(depth_ds[:size])
         data["point_cloud"].append(pc_ds[:size])
@@ -180,9 +195,22 @@ def collect_dataset(
         data["action"].append(action_ds[:size])
         data["task_id"].append(task_id_ds[:size])
         meta["episode_ends"].append(np.array(episode_ends_ds) + total_size)
+
+        lang_t5_emb, lang_t5_mask = t5_encoder(task["lang_instr"])
+        lang_t5_emb = lang_t5_emb.cpu().numpy()
+        lang_t5_mask = lang_t5_mask.cpu().numpy()
+        if lang_t5_emb.shape[1] < 32:
+            lang_t5_emb = np.pad(lang_t5_emb, ((0, 0), (0, 32 - lang_t5_emb.shape[1]), (0, 0)), mode="constant")
+            lang_t5_mask = np.pad(lang_t5_mask, ((0, 0), (0, 32 - lang_t5_mask.shape[1])), mode="constant")
+        else:
+            lang_t5_emb = lang_t5_emb[:, :32]
+            lang_t5_mask = lang_t5_mask[:, :32]
+
+        meta["lang_t5_emb"].append(lang_t5_emb)
+        meta["lang_t5_mask"].append(lang_t5_mask)
         total_size += size
 
-    meta.attrs["lang_instr"] = [{lang: [begin, end]} for lang, begin, end in zip(lang_instr, begin_idx, end_idx)]
+    meta.attrs["task_info"] = task_info
 
 
 if __name__ == "__main__":

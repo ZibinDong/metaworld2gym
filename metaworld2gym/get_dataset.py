@@ -100,7 +100,7 @@ class SequenceSampler:
                         data[sample_end_idx:] = sample[-1]
                 data[sample_start_idx:sample_end_idx] = sample
             result[key] = data
-        task_idx = np.searchsorted(self.task_ends, buffer_end_idx, side="right")
+        task_idx = np.searchsorted(self.task_ends, buffer_end_idx - 1, side="right")
         result["task_id"] = self.task_ids[task_idx]
         result["task_t5_emb"] = self.task_t5_emb[task_idx]
         result["task_t5_mask"] = self.task_t5_mask[task_idx]

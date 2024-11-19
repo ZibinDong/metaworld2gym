@@ -153,7 +153,7 @@ def collect_dataset(
                 full_state_ds[ptr] = obs["full_state"].astype(np.float32)
                 action_ds[ptr] = mw_policy.get_action(obs["full_state"])
 
-                obs, reward, done, info = env.step(action_ds[ptr])
+                obs, reward, done, info = env.step(np.clip(action_ds[ptr], -1., 1.))
                 ep_reward += reward
                 ep_success = ep_success or info["success"]
                 ep_success_times += info["success"]
@@ -192,7 +192,7 @@ def collect_dataset(
         data["point_cloud"].append(pc_ds[:size])
         data["agent_pos"].append(agent_pos_ds[:size])
         data["full_state"].append(full_state_ds[:size])
-        data["action"].append(action_ds[:size])
+        data["action"].append(np.clip(action_ds[:size], -1., 1.))
         data["task_id"].append(task_id_ds[:size])
         meta["episode_ends"].append(np.array(episode_ends_ds) + total_size)
 
